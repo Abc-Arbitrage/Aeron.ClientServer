@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Description>Embedded Aeron C media driver.</Description>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <LangVersion>8</LangVersion>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <PlatformTarget>x64</PlatformTarget>
+        <NoWarn>$(NoWarn),1591</NoWarn>
+        <PackageId>Abc.Aeron.MediaDriver</PackageId>
+        <Version>0.1.0</Version>
+        <PackageTags>Aeron media driver</PackageTags>
+        <PackageProjectUrl>https://github.com/Abc-Arbitrage/Aeron.MediaDriver.NET</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/Abc-Arbitrage/Aeron.MediaDriver.NET.git</RepositoryUrl>
+        <Product>Abc.Aeron.MediaDriver</Product>
+        <Authors>Victor Baybekov</Authors>
+        <Company>Abc Arbitrage Asset Management</Company>
+        <Copyright>Abc Arbitrage Asset Management 2020</Copyright>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <DebugType>embedded</DebugType>
+        <DebugSymbols>true</DebugSymbols>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Aeron.Client" Version="1.21.2"/>
+        <PackageReference Include="log4net" Version="2.0.9"/>
+        <PackageReference Include="protobuf-net" Version="3.0.29"/>
+        <PackageReference Include="SharpGenTools.Sdk" Version="1.2.1" PrivateAssets="all"/>
+        <PackageReference Include="System.Memory" Version="4.5.4"/>
+    </ItemGroup>
+
+    <PropertyGroup>
+        <CastXmlPath Condition="$([MSBuild]::IsOsPlatform('Linux'))">/usr/bin/castxml</CastXmlPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <SharpGenMapping Include="Native\Mapping.Linux.xml" Condition="$([MSBuild]::IsOsPlatform('Linux'))"/>
+        <SharpGenMapping Include="Native\Mapping.xml"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\lib\runtimes\**\*.*">
+            <Pack>true</Pack>
+            <PackagePath>runtimes</PackagePath>
+        </None>
+    </ItemGroup>
+</Project>
