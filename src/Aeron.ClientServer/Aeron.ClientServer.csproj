@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <Description>Client/Server implementation using Aeron as a transport.</Description>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <LangVersion>8</LangVersion>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <PlatformTarget>x64</PlatformTarget>
+        <NoWarn>$(NoWarn),1591</NoWarn>
+        <PackageId>Abc.Aeron.ClientServer</PackageId>
+        <Version>0.2.0</Version>
+        <PackageTags>Aeron Client Server</PackageTags>
+        <PackageProjectUrl>https://github.com/Abc-Arbitrage/Aeron.ClientServer</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/Abc-Arbitrage/Aeron.ClientServer.git</RepositoryUrl>
+        <Product>Abc.Aeron.ClientServer</Product>
+        <Authors>Victor Baybekov, Lucas Trzesniewski</Authors>
+        <Company>Abc Arbitrage Asset Management</Company>
+        <Copyright>Abc Arbitrage Asset Management 2020</Copyright>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <DebugType>embedded</DebugType>
+        <DebugSymbols>true</DebugSymbols>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <RootNamespace>Abc.Aeron.ClientServer</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Aeron.Driver.Native" Version="1.32.0-alpha2" />
+        <PackageReference Include="log4net" Version="2.0.9" />
+        <PackageReference Include="protobuf-net" Version="3.0.29" />
+        <PackageReference Include="System.Memory" Version="4.5.4" />
+    </ItemGroup>
+</Project>

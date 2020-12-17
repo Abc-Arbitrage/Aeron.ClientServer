@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 
-namespace Aeron.MediaDriver.Tests
+namespace Abc.Aeron.ClientServer.Tests
 {
     [TestFixture]
     [SuppressMessage("ReSharper", "HeapView.ClosureAllocation")]

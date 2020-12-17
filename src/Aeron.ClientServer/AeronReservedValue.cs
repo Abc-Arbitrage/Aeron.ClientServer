@@ -2,7 +2,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Aeron.MediaDriver
+namespace Abc.Aeron.ClientServer
 {
     [StructLayout(LayoutKind.Sequential, Pack = 1, Size = 8)]
     [SuppressMessage("ReSharper", "PrivateFieldCanBeConvertedToLocalVariable")]

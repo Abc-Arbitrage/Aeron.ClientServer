@@ -1,4 +1,4 @@
-namespace Aeron.MediaDriver
+namespace Abc.Aeron.ClientServer
 {
     public enum AeronResultType
     {

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 
-namespace Aeron.MediaDriver
+namespace Abc.Aeron.ClientServer
 {
     public static class UdpUtils
     {

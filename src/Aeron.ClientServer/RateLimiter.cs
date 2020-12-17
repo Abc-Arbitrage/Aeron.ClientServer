@@ -2,13 +2,11 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
 
-namespace Aeron.MediaDriver
+namespace Abc.Aeron.ClientServer
 {
     public class RateLimiter
     {
-        // ReSharper disable once InconsistentNaming
         public const int CHUNK_SIZE = 64 * 1024;
-
         private const int GROW_FACTOR = 4;
 
         public double BwLimitBytes { get; }

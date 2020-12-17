@@ -1,6 +1,6 @@
 del .\artifacts\*.nupkg
 
-dotnet restore ..\src\Aeron.MediaDriver
-dotnet pack ..\src\Aeron.MediaDriver -c Release -o .\artifacts
+dotnet restore ..\src\Aeron.ClientServer
+dotnet pack ..\src\Aeron.ClientServer -c Release -o .\artifacts
 
 pause

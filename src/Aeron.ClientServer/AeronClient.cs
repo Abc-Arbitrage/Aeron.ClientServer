@@ -10,20 +10,22 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Adaptive.Aeron;
+using Adaptive.Aeron.Driver.Native;
+using Adaptive.Aeron.Exceptions;
 using Adaptive.Aeron.LogBuffer;
 using Adaptive.Agrona;
 using Adaptive.Agrona.Concurrent;
-using Aeron.MediaDriver.Native;
 using log4net;
 using ProtoBuf;
 
-namespace Aeron.MediaDriver
+namespace Abc.Aeron.ClientServer
 {
     public delegate void AeronClientMessageReceivedHandler(ReadOnlySpan<byte> message);
 
     public class AeronClient : IDisposable
     {
         private static readonly ILog _log = LogManager.GetLogger(typeof(AeronClient));
+        private static readonly ILog _driverLog = LogManager.GetLogger(typeof(AeronDriver));
 
         private static readonly object _clientsLock = new object();
 
@@ -37,21 +39,35 @@ namespace Aeron.MediaDriver
         private int _roundRobinIndex;
         private int _referenceCount;
 
-        private readonly AeronConnection _connection;
-
         private volatile bool _isRunning;
         private bool _isTerminatedUnexpectedly;
 
         private readonly object _connectionsLock = new object();
         private AeronClientSession?[] _clientSessions;
 
-        private readonly DriverConfig _config;
+        private readonly ClientServerConfig _config;
+        private readonly AeronDriver _driver;
+        
         private Thread? _receiveThread;
 
         public event Action? TerminatedUnexpectedly;
 
-        private AeronClient(DriverConfig config)
+        private AeronClient(ClientServerConfig config)
         {
+            _config = config;
+            AeronDriver.DriverContext driverContext = config.ToDriverContext();
+            driverContext.Ctx
+                .ErrorHandler(OnError)
+                .AvailableImageHandler(ConnectionOnImageAvailable)
+                .UnavailableImageHandler(ConnectionOnImageUnavailable);
+            
+            driverContext
+                .LoggerInfo(_driverLog.Info)
+                .LoggerWarning(_driverLog.Warn)
+                .LoggerWarning(_driverLog.Error);
+
+            _driver = AeronDriver.Start(driverContext);
+            
             const int sessionsLen =
 #if DEBUG
                 1;
@@ -61,15 +77,26 @@ namespace Aeron.MediaDriver
 
             _clientSessions = new AeronClientSession[sessionsLen];
 
-            _config = config;
-
-            _connection = new AeronConnection(_config);
-
-            _connection.ImageAvailable += ConnectionOnImageAvailable;
-            _connection.ImageUnavailable += ConnectionOnImageUnavailable;
-            _connection.TerminatedUnexpectedly += ConnectionOnTerminatedUnexpectedly;
+            
         }
 
+        private void OnError(Exception exception)
+        {
+            _driverLog.Error("Aeron connection error", exception);
+        
+            if (_driver.IsClosed)
+                return;
+        
+            switch (exception)
+            {
+                case AeronException _:
+                case AgentTerminationException _:
+                    _log.Error("Unrecoverable Media Driver error");
+                    ConnectionOnTerminatedUnexpectedly();
+                    break;
+            }
+        }
+        
         public int Connect(string serverHost, int serverPort, Action onConnectedDelegate, Action onDisconnectedDelegate,
             AeronClientMessageReceivedHandler onMessageReceived, int connectionResponseTimeoutMs)
         {
@@ -95,11 +122,11 @@ namespace Aeron.MediaDriver
                 serverHostIp = ipv4.ToString();
             }
 
-            var serverChannel = AeronUtils.RemoteChannel(serverHostIp, serverPort);
-            var publication = _connection.Aeron.AddExclusivePublication(serverChannel, AeronServer.ServerStreamId);
+            var serverChannel = Utils.RemoteChannel(serverHostIp, serverPort);
+            var publication = _driver.AddExclusivePublication(serverChannel, AeronServer.ServerStreamId);
 
             var localIp = UdpUtils.GetLocalIPAddress(serverHostIp, serverPort);
-            var streamId = _connection.GetNewClientStreamId();
+            var streamId = MachineCounters.Instance.GetNewClientStreamId();
             GetChannelAndSubscription(localIp, streamId, out var clientChannel, out var subscription);
 
             var session = new AeronClientSession(this, serverChannel, publication, subscription, onConnectedDelegate,
@@ -142,11 +169,11 @@ namespace Aeron.MediaDriver
                             try
                             {
                                 clientPort = UdpUtils.GetRandomUnusedPort();
-                                clientChannel = AeronUtils.RemoteChannel(localIp, clientPort);
-                                subscription = _connection.Aeron.AddSubscription(clientChannel, streamId);
+                                clientChannel = Utils.RemoteChannel(localIp, clientPort);
+                                subscription = _driver.AddSubscription(clientChannel, streamId);
                                 break;
                             }
-                            catch (Adaptive.Aeron.Exceptions.RegistrationException ex)
+                            catch (RegistrationException ex)
                             {
                                 // if port was already reused by someone
                                 _log.Warn($"Could not subscribe on new port {clientPort}", ex);
@@ -159,11 +186,11 @@ namespace Aeron.MediaDriver
 
                     try
                     {
-                        clientChannel = AeronUtils.RemoteChannel(localIp, _clientPort);
-                        subscription = _connection.Aeron.AddSubscription(clientChannel, streamId);
+                        clientChannel = Utils.RemoteChannel(localIp, _clientPort);
+                        subscription = _driver.AddSubscription(clientChannel, streamId);
                         return;
                     }
-                    catch (Adaptive.Aeron.Exceptions.RegistrationException ex)
+                    catch (RegistrationException ex)
                     {
                         _log.Warn($"Could not subscribe on existing port {_clientPort}", ex);
                         _clientPort = 0;
@@ -463,7 +490,7 @@ namespace Aeron.MediaDriver
                         }
                     }
 
-                    _connection.Dispose(); // last
+                    _driver.Dispose(); // last
                 }
                 finally
                 {
@@ -472,7 +499,7 @@ namespace Aeron.MediaDriver
             }
         }
 
-        public static AeronClient GetClientReference(string path, Func<string, DriverConfig>? mdConfigFactory)
+        public static AeronClient GetClientReference(string path, Func<string, ClientServerConfig>? mdConfigFactory)
         {
             path = Path.GetFullPath(path);
 
@@ -480,7 +507,7 @@ namespace Aeron.MediaDriver
             {
                 if (!_clients.TryGetValue(path, out var client))
                 {
-                    client = new AeronClient(mdConfigFactory?.Invoke(path) ?? new DriverConfig(path));
+                    client = new AeronClient(mdConfigFactory?.Invoke(path) ?? new ClientServerConfig(path));
                     _clients.Add(path, client);
                 }
 
@@ -489,8 +516,7 @@ namespace Aeron.MediaDriver
             }
         }
 
-        internal void DisposeConnection()
-            => _connection.Dispose();
+        internal void DisposeDriver() => _driver.Dispose();
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int ConnectionIndexToId(int connectionIndex)
@@ -576,7 +602,7 @@ namespace Aeron.MediaDriver
             {
                 _serverAssignedSessionId = serverAssignedSessionId;
 
-                var dataReservedValue = (long) new AeronReservedValue(AeronUtils.CurrentProtocolVersion,
+                var dataReservedValue = (long) new AeronReservedValue(Utils.CurrentProtocolVersion,
                     AeronMessageType.Data, serverAssignedSessionId);
                 _dataReservedValueSupplier = (buffer, offset, length) => dataReservedValue;
 
@@ -598,7 +624,11 @@ namespace Aeron.MediaDriver
                     while (true)
                     {
                         var errorCode = _publication.Offer(_buffer, 0, message.Length, _dataReservedValueSupplier);
-                        var result = AeronUtils.InterpretPublicationOfferResult(errorCode);
+                        
+                        if(errorCode >= 0)
+                            break;
+                        
+                        var result = Utils.InterpretPublicationOfferResult(errorCode);
 
                         if (result == AeronResultType.Success)
                             break;
@@ -629,7 +659,7 @@ namespace Aeron.MediaDriver
                 while (true)
                 {
                     var errorCode = _publication.Offer(_buffer, 0, (int) handshakeRequestStream.Length,
-                        (buffer, offset, length) => (long) new AeronReservedValue(AeronUtils.CurrentProtocolVersion,
+                        (buffer, offset, length) => (long) new AeronReservedValue(Utils.CurrentProtocolVersion,
                             AeronMessageType.Connected, 0));
 
                     if (errorCode == Publication.NOT_CONNECTED)
@@ -646,7 +676,7 @@ namespace Aeron.MediaDriver
                         continue;
                     }
 
-                    var result = AeronUtils.InterpretPublicationOfferResult(errorCode);
+                    var result = Utils.InterpretPublicationOfferResult(errorCode);
 
                     if (result == AeronResultType.Success)
                         break;
@@ -670,9 +700,9 @@ namespace Aeron.MediaDriver
                 while (true)
                 {
                     var errorCode = _publication.Offer(_buffer, 0, 0,
-                        (buffer, offset, length) => (long) new AeronReservedValue(AeronUtils.CurrentProtocolVersion,
+                        (buffer, offset, length) => (long) new AeronReservedValue(Utils.CurrentProtocolVersion,
                             AeronMessageType.Disconnected, _serverAssignedSessionId));
-                    var result = AeronUtils.InterpretPublicationOfferResult(errorCode);
+                    var result = Utils.InterpretPublicationOfferResult(errorCode);
 
                     if (result == AeronResultType.ShouldRetry)
                     {
@@ -693,7 +723,7 @@ namespace Aeron.MediaDriver
             {
                 var reservedValue = (AeronReservedValue) header.ReservedValue;
 
-                if (reservedValue.ProtocolVersion != AeronUtils.CurrentProtocolVersion)
+                if (reservedValue.ProtocolVersion != Utils.CurrentProtocolVersion)
                 {
                     _log.Error(
                         $"Received message with unsupported protocol version: {reservedValue.ProtocolVersion} from {this}, ignoring");

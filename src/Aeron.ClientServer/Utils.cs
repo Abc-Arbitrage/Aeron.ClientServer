@@ -5,11 +5,11 @@ using System.Net.Sockets;
 using Adaptive.Aeron;
 using log4net;
 
-namespace Aeron.MediaDriver
+namespace Abc.Aeron.ClientServer
 {
-    public static class AeronUtils
+    public static class Utils
     {
-        private static readonly ILog _log = LogManager.GetLogger(typeof(AeronUtils));
+        private static readonly ILog _log = LogManager.GetLogger(typeof(Utils));
 
         public const byte CurrentProtocolVersion = 1;
 

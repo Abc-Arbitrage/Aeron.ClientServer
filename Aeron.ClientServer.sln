@@ -3,9 +3,17 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.26124.0
 MinimumVisualStudioVersion = 15.0.26124.0
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aeron.MediaDriver", "src\Aeron.MediaDriver\Aeron.MediaDriver.csproj", "{B6FD9558-5E6C-4091-A52C-315CCF92EFE2}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aeron.ClientServer", "src\Aeron.ClientServer\Aeron.ClientServer.csproj", "{B6FD9558-5E6C-4091-A52C-315CCF92EFE2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aeron.MediaDriver.Tests", "src\Aeron.MediaDriver.Tests\Aeron.MediaDriver.Tests.csproj", "{BB3CA50D-9467-49EB-8BD5-A08A21817B50}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aeron.ClientServer.Tests", "src\Aeron.ClientServer.Tests\Aeron.ClientServer.Tests.csproj", "{BB3CA50D-9467-49EB-8BD5-A08A21817B50}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{6701D877-9076-47B0-A46B-919E6C8F83EF}"
+ProjectSection(SolutionItems) = preProject
+	.gitignore = .gitignore
+	LICENSE.txt = LICENSE.txt
+	NuGet.config = NuGet.config
+	README.md = README.md
+EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

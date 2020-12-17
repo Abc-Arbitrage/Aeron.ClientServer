@@ -1,6 +1,6 @@
 ﻿using ProtoBuf;
 
-namespace Aeron.MediaDriver
+namespace Abc.Aeron.ClientServer
 {
     [ProtoContract]
     internal class AeronHandshakeRequest
