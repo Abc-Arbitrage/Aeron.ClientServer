@@ -29,6 +29,7 @@ namespace Abc.Aeron.ClientServer
         public bool DirDeleteOnStart { get; set; } = true;
 
         public bool DirDeleteOnShutdown { get; set; } = true;
+        public bool PreTouchMappedMemory { get; set; } = true;
 
         // see low-latency config here https://github.com/real-logic/aeron/blob/master/aeron-driver/src/main/resources/low-latency.properties
 
@@ -196,6 +197,7 @@ namespace Abc.Aeron.ClientServer
             return new Adaptive.Aeron.Aeron.Context()
                 .AeronDirectoryName(Dir)
                 .DriverTimeoutMs(DriverTimeout)
+                .PreTouchMappedMemory(PreTouchMappedMemory)
                 .DriverContext()
                 .UseActiveDriverIfPresent(UseActiveDriverIfPresent)
                 .DirDeleteOnStart(DirDeleteOnStart)
