@@ -17,7 +17,6 @@ namespace Abc.Aeron.ClientServer.Tests
         private static long _counter;
         private const int _iterations = 10_000_000;
         
-
         [Test, Explicit("manual long running")]
         public async Task RateLimiterNeitherExceedsLimitNorDrifts()
         {
