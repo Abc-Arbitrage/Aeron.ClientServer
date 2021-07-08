@@ -194,11 +194,9 @@ namespace Abc.Aeron.ClientServer
 
         internal AeronDriver.DriverContext ToDriverContext()
         {
-            return new Adaptive.Aeron.Aeron.Context()
+            return new AeronDriver.DriverContext()
                 .AeronDirectoryName(Dir)
                 .DriverTimeoutMs(DriverTimeout)
-                .PreTouchMappedMemory(PreTouchMappedMemory)
-                .DriverContext()
                 .UseActiveDriverIfPresent(UseActiveDriverIfPresent)
                 .DirDeleteOnStart(DirDeleteOnStart)
                 .DirDeleteOnShutdown(DirDeleteOnShutdown)
@@ -214,6 +212,14 @@ namespace Abc.Aeron.ClientServer
                 .SenderIdleStrategy(SharedIdleStrategy);
             
             // Note that ClientIdleStrategy is not for the driver, but for Client/Server
+        }
+        
+        internal Adaptive.Aeron.Aeron.Context ToClientContext()
+        {
+            return new Adaptive.Aeron.Aeron.Context()
+                   .AeronDirectoryName(Dir)
+                   .DriverTimeoutMs(DriverTimeout)
+                   .PreTouchMappedMemory(PreTouchMappedMemory);
         }
     }
 }

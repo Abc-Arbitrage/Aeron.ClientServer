@@ -31,8 +31,8 @@ namespace Abc.Aeron.ClientServer
 
         private static readonly Dictionary<string, AeronClient> _clients =
             new Dictionary<string, AeronClient>(RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
-                ? StringComparer.Ordinal
-                : StringComparer.OrdinalIgnoreCase);
+                                                    ? StringComparer.Ordinal
+                                                    : StringComparer.OrdinalIgnoreCase);
 
         private int _clientPort;
         private const int _frameCountLimit = 16384;
@@ -47,7 +47,8 @@ namespace Abc.Aeron.ClientServer
 
         private readonly ClientServerConfig _config;
         private readonly AeronDriver _driver;
-        
+        private readonly Adaptive.Aeron.Aeron _client;
+
         private Thread? _receiveThread;
 
         public event Action? TerminatedUnexpectedly;
@@ -56,18 +57,22 @@ namespace Abc.Aeron.ClientServer
         {
             _config = config;
             AeronDriver.DriverContext driverContext = config.ToDriverContext();
-            driverContext.Ctx
-                .ErrorHandler(OnError)
-                .AvailableImageHandler(ConnectionOnImageAvailable)
-                .UnavailableImageHandler(ConnectionOnImageUnavailable);
-            
+            Adaptive.Aeron.Aeron.Context clientContext = config.ToClientContext();
+
             driverContext
                 .LoggerInfo(_driverLog.Info)
                 .LoggerWarning(_driverLog.Warn)
                 .LoggerWarning(_driverLog.Error);
 
             _driver = AeronDriver.Start(driverContext);
-            
+
+            clientContext
+                .ErrorHandler(OnError)
+                .AvailableImageHandler(ConnectionOnImageAvailable)
+                .UnavailableImageHandler(ConnectionOnImageUnavailable);
+
+            _client = Adaptive.Aeron.Aeron.Connect(clientContext);
+
             const int sessionsLen =
 #if DEBUG
                 1;
@@ -76,17 +81,15 @@ namespace Abc.Aeron.ClientServer
 #endif
 
             _clientSessions = new AeronClientSession[sessionsLen];
-
-            
         }
 
         private void OnError(Exception exception)
         {
             _driverLog.Error("Aeron connection error", exception);
-        
-            if (_driver.IsClosed)
+
+            if (_client.IsClosed)
                 return;
-        
+
             switch (exception)
             {
                 case AeronException _:
@@ -96,9 +99,13 @@ namespace Abc.Aeron.ClientServer
                     break;
             }
         }
-        
-        public int Connect(string serverHost, int serverPort, Action onConnectedDelegate, Action onDisconnectedDelegate,
-            AeronClientMessageReceivedHandler onMessageReceived, int connectionResponseTimeoutMs)
+
+        public int Connect(string serverHost,
+                           int serverPort,
+                           Action onConnectedDelegate,
+                           Action onDisconnectedDelegate,
+                           AeronClientMessageReceivedHandler onMessageReceived,
+                           int connectionResponseTimeoutMs)
         {
             if (serverHost == null)
                 throw new ArgumentNullException(nameof(serverHost));
@@ -107,8 +114,7 @@ namespace Abc.Aeron.ClientServer
                 return -1;
 
             string serverHostIp;
-            if (serverHost.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
-                serverHost.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+            if (serverHost.Equals("localhost", StringComparison.OrdinalIgnoreCase) || serverHost.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
             {
                 // TODO IPC channel for local communication
                 serverHostIp = "127.0.0.1";
@@ -117,20 +123,25 @@ namespace Abc.Aeron.ClientServer
             {
                 var ipv4 =
                     Dns.GetHostEntry(serverHost).AddressList
-                        .FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork) ??
-                    throw new ArgumentException($"Cannot resolve serverHost ip for {serverHost}");
+                       .FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork)
+                    ?? throw new ArgumentException($"Cannot resolve serverHost ip for {serverHost}");
                 serverHostIp = ipv4.ToString();
             }
 
             var serverChannel = Utils.RemoteChannel(serverHostIp, serverPort);
-            var publication = _driver.AddExclusivePublication(serverChannel, AeronServer.ServerStreamId);
+            var publication = _client.AddExclusivePublication(serverChannel, AeronServer.ServerStreamId);
 
             var localIp = UdpUtils.GetLocalIPAddress(serverHostIp, serverPort);
             var streamId = MachineCounters.Instance.GetNewClientStreamId();
             GetChannelAndSubscription(localIp, streamId, out var clientChannel, out var subscription);
 
-            var session = new AeronClientSession(this, serverChannel, publication, subscription, onConnectedDelegate,
-                onDisconnectedDelegate, onMessageReceived);
+            var session = new AeronClientSession(this,
+                                                 serverChannel,
+                                                 publication,
+                                                 subscription,
+                                                 onConnectedDelegate,
+                                                 onDisconnectedDelegate,
+                                                 onMessageReceived);
             var connectionId = AddSession(session);
 
             _log.Info($"Connecting: {session}");
@@ -151,8 +162,10 @@ namespace Abc.Aeron.ClientServer
             return connectionId;
         }
 
-        private void GetChannelAndSubscription(string localIp, int streamId, out string clientChannel,
-            out Subscription subscription)
+        private void GetChannelAndSubscription(string localIp,
+                                               int streamId,
+                                               out string clientChannel,
+                                               out Subscription subscription)
         {
             // Finding port for the first time is slow and in tests with
             // parallel connections many clients have different ports.
@@ -170,7 +183,7 @@ namespace Abc.Aeron.ClientServer
                             {
                                 clientPort = UdpUtils.GetRandomUnusedPort();
                                 clientChannel = Utils.RemoteChannel(localIp, clientPort);
-                                subscription = _driver.AddSubscription(clientChannel, streamId);
+                                subscription = _client.AddSubscription(clientChannel, streamId);
                                 break;
                             }
                             catch (RegistrationException ex)
@@ -187,7 +200,7 @@ namespace Abc.Aeron.ClientServer
                     try
                     {
                         clientChannel = Utils.RemoteChannel(localIp, _clientPort);
-                        subscription = _driver.AddSubscription(clientChannel, streamId);
+                        subscription = _client.AddSubscription(clientChannel, streamId);
                         return;
                     }
                     catch (RegistrationException ex)
@@ -236,7 +249,7 @@ namespace Abc.Aeron.ClientServer
             lock (_connectionsLock)
             {
                 var sessionIndex = ConnectionIdToIndex(connectionId);
-                if ((uint) sessionIndex >= _clientSessions.Length)
+                if ((uint)sessionIndex >= _clientSessions.Length)
                     throw new IndexOutOfRangeException(nameof(connectionId));
 
                 var session = _clientSessions[sessionIndex];
@@ -277,7 +290,7 @@ namespace Abc.Aeron.ClientServer
             if (sendNotification)
             {
                 Debug.Assert(_receiveThread != Thread.CurrentThread,
-                    "Notification is only sent from FeedClient.Stop method");
+                             "Notification is only sent from FeedClient.Stop method");
                 // Notify server that we are disconnecting. There should be no ack from server.
                 session.SendDisconnectNotification();
             }
@@ -435,7 +448,7 @@ namespace Abc.Aeron.ClientServer
             var clientSessions = _clientSessions;
 
             var connectionIndex = ConnectionIdToIndex(connectionId);
-            if ((uint) connectionIndex >= clientSessions.Length)
+            if ((uint)connectionIndex >= clientSessions.Length)
                 return null;
 
             return clientSessions[connectionIndex];
@@ -490,7 +503,27 @@ namespace Abc.Aeron.ClientServer
                         }
                     }
 
-                    _driver.Dispose(); // last
+                    try
+                    {
+                        _client.Dispose();
+                        _driver.Dispose(); // last
+                    }
+                    catch(AeronDriver.MediaDriverException)
+                    {
+                        try
+                        {
+                            if (_config.DirDeleteOnShutdown && Directory.Exists(_config.Dir))
+                            {
+                                Thread.Sleep(100);
+                                Directory.Delete(_config.Dir, true);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Cannot delete client dir [{_config.Dir}] on shutdown:\n{ex}");
+                            _log.Warn($"Cannot delete client dir [{_config.Dir}] on shutdown:\n{ex}");
+                        }
+                    }
                 }
                 finally
                 {
@@ -547,12 +580,12 @@ namespace Abc.Aeron.ClientServer
             private ReservedValueSupplier? _dataReservedValueSupplier;
 
             public AeronClientSession(AeronClient client,
-                string serverChannel,
-                Publication publication,
-                Subscription subscription,
-                Action onConnected,
-                Action onDisconnected,
-                AeronClientMessageReceivedHandler onMessageReceived)
+                                      string serverChannel,
+                                      Publication publication,
+                                      Subscription subscription,
+                                      Action onConnected,
+                                      Action onDisconnected,
+                                      AeronClientMessageReceivedHandler onMessageReceived)
             {
                 _client = client;
                 _serverChannel = serverChannel;
@@ -583,7 +616,7 @@ namespace Abc.Aeron.ClientServer
                         // need to sleep, otherwise fast restart of a client connection causes segfault (e.g. should_allow_to_stop_and_start_client test)
                         await Task.Delay(1000);
 
-                        var session = (AeronClientSession) x!;
+                        var session = (AeronClientSession)x!;
 
                         session._publication.Dispose();
                         session.Subscription.Dispose();
@@ -602,8 +635,9 @@ namespace Abc.Aeron.ClientServer
             {
                 _serverAssignedSessionId = serverAssignedSessionId;
 
-                var dataReservedValue = (long) new AeronReservedValue(Utils.CurrentProtocolVersion,
-                    AeronMessageType.Data, serverAssignedSessionId);
+                var dataReservedValue = (long)new AeronReservedValue(Utils.CurrentProtocolVersion,
+                                                                     AeronMessageType.Data,
+                                                                     serverAssignedSessionId);
                 _dataReservedValueSupplier = (buffer, offset, length) => dataReservedValue;
 
                 _isConnected = true;
@@ -624,10 +658,10 @@ namespace Abc.Aeron.ClientServer
                     while (true)
                     {
                         var errorCode = _publication.Offer(_buffer, 0, message.Length, _dataReservedValueSupplier);
-                        
-                        if(errorCode >= 0)
+
+                        if (errorCode >= 0)
                             break;
-                        
+
                         var result = Utils.InterpretPublicationOfferResult(errorCode);
 
                         if (result == AeronResultType.Success)
@@ -651,16 +685,19 @@ namespace Abc.Aeron.ClientServer
             {
                 using var handshakeRequestStream = new MemoryStream();
                 Serializer.SerializeWithLengthPrefix(handshakeRequestStream, handshakeRequest, PrefixStyle.Base128);
-                _buffer.Wrap(handshakeRequestStream.GetBuffer(), 0, (int) handshakeRequestStream.Length);
+                _buffer.Wrap(handshakeRequestStream.GetBuffer(), 0, (int)handshakeRequestStream.Length);
 
                 var spinWait = new SpinWait();
                 var stopwatch = Stopwatch.StartNew();
 
                 while (true)
                 {
-                    var errorCode = _publication.Offer(_buffer, 0, (int) handshakeRequestStream.Length,
-                        (buffer, offset, length) => (long) new AeronReservedValue(Utils.CurrentProtocolVersion,
-                            AeronMessageType.Connected, 0));
+                    var errorCode = _publication.Offer(_buffer,
+                                                       0,
+                                                       (int)handshakeRequestStream.Length,
+                                                       (buffer, offset, length) => (long)new AeronReservedValue(Utils.CurrentProtocolVersion,
+                                                                                                                AeronMessageType.Connected,
+                                                                                                                0));
 
                     if (errorCode == Publication.NOT_CONNECTED)
                     {
@@ -699,9 +736,12 @@ namespace Abc.Aeron.ClientServer
             {
                 while (true)
                 {
-                    var errorCode = _publication.Offer(_buffer, 0, 0,
-                        (buffer, offset, length) => (long) new AeronReservedValue(Utils.CurrentProtocolVersion,
-                            AeronMessageType.Disconnected, _serverAssignedSessionId));
+                    var errorCode = _publication.Offer(_buffer,
+                                                       0,
+                                                       0,
+                                                       (buffer, offset, length) => (long)new AeronReservedValue(Utils.CurrentProtocolVersion,
+                                                                                                                AeronMessageType.Disconnected,
+                                                                                                                _serverAssignedSessionId));
                     var result = Utils.InterpretPublicationOfferResult(errorCode);
 
                     if (result == AeronResultType.ShouldRetry)
@@ -721,7 +761,7 @@ namespace Abc.Aeron.ClientServer
 
             private unsafe void SubscriptionHandler(IDirectBuffer buffer, int offset, int length, Header header)
             {
-                var reservedValue = (AeronReservedValue) header.ReservedValue;
+                var reservedValue = (AeronReservedValue)header.ReservedValue;
 
                 if (reservedValue.ProtocolVersion != Utils.CurrentProtocolVersion)
                 {
@@ -733,7 +773,7 @@ namespace Abc.Aeron.ClientServer
                 switch (reservedValue.MessageType)
                 {
                     case AeronMessageType.Data:
-                        _onMessageReceived(new ReadOnlySpan<byte>((byte*) buffer.BufferPointer + offset, length));
+                        _onMessageReceived(new ReadOnlySpan<byte>((byte*)buffer.BufferPointer + offset, length));
                         break;
 
                     case AeronMessageType.Connected:

@@ -27,15 +27,16 @@ namespace Abc.Aeron.ClientServer
 
         private static readonly ILog _log = LogManager.GetLogger(typeof(AeronServer));
         private static readonly ILog _driverLog = LogManager.GetLogger(typeof(AeronDriver));
-        
+
         private readonly ClientServerConfig _config;
         private readonly AeronDriver.DriverContext _driverContext;
+        private readonly Adaptive.Aeron.Aeron.Context _clientContext;
         private readonly AeronDriver _driver;
-        
+        private readonly Adaptive.Aeron.Aeron _client;
+
         private readonly IIdleStrategy _publicationIdleStrategy;
         private readonly Subscription _subscription;
 
-        
         private readonly ConcurrentDictionary<int, ClientSession> _clientSessions = new ConcurrentDictionary<int, ClientSession>();
 
         private volatile bool _isRunning;
@@ -46,11 +47,8 @@ namespace Abc.Aeron.ClientServer
         {
             _config = config;
             _driverContext = config.ToDriverContext();
-            _driverContext.Ctx
-                .ErrorHandler(OnError)
-                .AvailableImageHandler(ConnectionOnImageAvailable)
-                .UnavailableImageHandler(ConnectionOnImageUnavailable);
-            
+            _clientContext = config.ToClientContext();
+
             _driverContext
                 .LoggerInfo(_driverLog.Info)
                 .LoggerWarning(_driverLog.Warn)
@@ -58,18 +56,25 @@ namespace Abc.Aeron.ClientServer
 
             _driver = AeronDriver.Start(_driverContext);
 
+            _clientContext
+                .ErrorHandler(OnError)
+                .AvailableImageHandler(ConnectionOnImageAvailable)
+                .UnavailableImageHandler(ConnectionOnImageUnavailable);
+
+            _client = Adaptive.Aeron.Aeron.Connect(_clientContext);
+
             _publicationIdleStrategy = _config.ClientIdleStrategy.GetClientIdleStrategy();
-            
-            _subscription = _driver.AddSubscription($"aeron:udp?endpoint=0.0.0.0:{serverPort}", ServerStreamId);
+
+            _subscription = _client.AddSubscription($"aeron:udp?endpoint=0.0.0.0:{serverPort}", ServerStreamId);
         }
 
         private void OnError(Exception exception)
         {
             _driverLog.Error("Aeron connection error", exception);
-        
-            if (_driver.IsClosed)
+
+            if (_client.IsClosed)
                 return;
-        
+
             switch (exception)
             {
                 case AeronException _:
@@ -79,7 +84,7 @@ namespace Abc.Aeron.ClientServer
                     break;
             }
         }
-        
+
         public event AeronServerMessageReceivedHandler? MessageReceived;
 
         public event Action<long>? ClientConnected;
@@ -176,7 +181,7 @@ namespace Abc.Aeron.ClientServer
             if (!_isRunning)
                 return;
 
-            var reservedValue = (AeronReservedValue) header.ReservedValue;
+            var reservedValue = (AeronReservedValue)header.ReservedValue;
 
             if (reservedValue.ProtocolVersion != Utils.CurrentProtocolVersion)
             {
@@ -193,7 +198,7 @@ namespace Abc.Aeron.ClientServer
 
         private unsafe void ConnectionHandler(IDirectBuffer buffer, int offset, int length, Header header)
         {
-            var reservedValue = (AeronReservedValue) header.ReservedValue;
+            var reservedValue = (AeronReservedValue)header.ReservedValue;
             var messageType = reservedValue.MessageType;
 
             if (messageType == AeronMessageType.Connected)
@@ -205,9 +210,10 @@ namespace Abc.Aeron.ClientServer
                 }
 
                 var handshake = Serializer.DeserializeWithLengthPrefix<AeronHandshakeRequest>(
-                    new UnmanagedMemoryStream((byte*) buffer.BufferPointer + offset, length), PrefixStyle.Base128);
+                    new UnmanagedMemoryStream((byte*)buffer.BufferPointer + offset, length),
+                    PrefixStyle.Base128);
 
-                var publication = _driver.AddPublication(handshake.Channel, handshake.StreamId);
+                var publication = _client.AddPublication(handshake.Channel, handshake.StreamId);
                 var session = new ClientSession(this, publication, image);
 
                 if (TryAddSession(session))
@@ -241,9 +247,12 @@ namespace Abc.Aeron.ClientServer
 
                 while (true)
                 {
-                    var errorCode = session.Publication.Offer(session.Buffer, 0, 0,
-                        (buffer, offset, length) => (long) new AeronReservedValue(Utils.CurrentProtocolVersion,
-                            AeronMessageType.Connected, session.Publication.SessionId));
+                    var errorCode = session.Publication.Offer(session.Buffer,
+                                                              0,
+                                                              0,
+                                                              (buffer, offset, length) => (long)new AeronReservedValue(Utils.CurrentProtocolVersion,
+                                                                                                                       AeronMessageType.Connected,
+                                                                                                                       session.Publication.SessionId));
 
                     if (errorCode == Publication.NOT_CONNECTED)
                     {
@@ -290,7 +299,7 @@ namespace Abc.Aeron.ClientServer
             if (_clientSessions.ContainsKey(publicationSessionId))
             {
                 MessageReceived?.Invoke(publicationSessionId,
-                    new ReadOnlySpan<byte>((byte*) buffer.BufferPointer + offset, length));
+                                        new ReadOnlySpan<byte>((byte*)buffer.BufferPointer + offset, length));
             }
             else
             {
@@ -354,10 +363,13 @@ namespace Abc.Aeron.ClientServer
                             break;
 
                         var result = Utils.InterpretPublicationOfferResult(
-                            session.Publication.Offer(session.Buffer, 0, 0,
-                                (buffer, offset, length) =>
-                                    (long) new AeronReservedValue(Utils.CurrentProtocolVersion,
-                                        AeronMessageType.Disconnected, session.Publication.SessionId)));
+                            session.Publication.Offer(session.Buffer,
+                                                      0,
+                                                      0,
+                                                      (buffer, offset, length) =>
+                                                          (long)new AeronReservedValue(Utils.CurrentProtocolVersion,
+                                                                                       AeronMessageType.Disconnected,
+                                                                                       session.Publication.SessionId)));
 
                         if (result == AeronResultType.ShouldRetry)
                         {
@@ -381,7 +393,23 @@ namespace Abc.Aeron.ClientServer
             Thread.Sleep(500);
 
             _subscription.Dispose();
-            _driver.Dispose(); // last
+            try
+            {
+                _client.Dispose();
+                _driver.Dispose(); // last
+            }
+            catch(AeronDriver.MediaDriverException)
+            {
+                try
+                {
+                    if (_config.DirDeleteOnShutdown && Directory.Exists(_config.Dir))
+                        Directory.Delete(_config.Dir, true);
+                }
+                catch(Exception ex)
+                {
+                    _log.Warn($"Cannot delete server dir [{_config.Dir}] on shutdown:\n{ex}");
+                }
+            }
         }
 
         private class ClientSession : IDisposable
@@ -400,8 +428,9 @@ namespace Abc.Aeron.ClientServer
                 Image = image;
                 Publication = publication;
 
-                var dataReservedValue = (long) new AeronReservedValue(Utils.CurrentProtocolVersion,
-                    AeronMessageType.Data, Publication.SessionId);
+                var dataReservedValue = (long)new AeronReservedValue(Utils.CurrentProtocolVersion,
+                                                                     AeronMessageType.Data,
+                                                                     Publication.SessionId);
                 _dataReservedValueSupplier = (buffer, offset, length) => dataReservedValue;
             }
 
